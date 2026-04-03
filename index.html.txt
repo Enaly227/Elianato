@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>El Elianato XXVI</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=Cinzel:wght@400;600;900&display=swap" rel="stylesheet">
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase,ref,set,get,onValue,push,remove,update }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey:"AIzaSyDInK9SbrCh1plJH8p4FqJwgT_ez3EQGJU",
+  authDomain:"elianato-2.firebaseapp.com",
+  databaseURL:"https://firebaseio.com",
+  projectId:"elianato-2",
+  storageBucket:"elianato-2.firebasestorage.app",
+  messagingSenderId:"1071756060558",
+  appId:"1:1071756060558:web:1b26d8c4a08cd8dcbba6df"
+};
+
+const fapp=initializeApp(firebaseConfig);
+const db=getDatabase(fapp);
+const dbGet  = async p=>{const s=await get(ref(db,p));return s.val();};
+const dbSet  = (p,v)=>set(ref(db,p),v);
+const dbUpd  = (p,v)=>update(ref(db,p),v);
+const dbPush = (p,v)=>push(ref(db,p),v);
+const dbDel  = p=>remove(ref(db,p));
+const dbLive = (p,cb)=>onValue(ref(db,p),s=>cb(s.val()));
+const norm   = s=>s?s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim():"";
+
+let currentUser=null, currentPage='p1', GS={};
+const PTS={facOk:2,facFail:-0.5,rolOk:5,rolFail:-2};
+const FACCIONES=['Mafia','Agencia','Municipales','Especial'];
+const FACICON={Mafia:'🔫',Agencia:'🕵️',Municipales:'🏛️',Especial:'⭐'};
+const FACCOL={Mafia:'var(--red)',Agencia:'var(--blue)',Municipales:'var(--amber)',Especial:'var(--purple)'};
+
+window.addEventListener('DOMContentLoaded',async()=>{
+  const pin=await dbGet('config/pin');
+  if(!pin) await dbSet('config/pin','1234');
+  dbLive('gamestate',val=>{GS=val||{};renderAll();});
+  const saved=localStorage.getItem('elianato_user');
+  if(saved) currentUser=JSON.parse(saved);
+  renderPage('p1');
+});
+
+const isEnabled=p=>GS.testMode||GS.enabled?.[p];
+
+window.navigateTo=page=>{
+  if(['p2','p3','p4'].includes(page)&&!isEnabled(page))return;
+  currentPage=page;
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(page)?.classList.add('active');
+  document.querySelector(`.nav-btn[data-page="${page}"]`)?.classList.add('active');
+  renderPage(page);
+};
+
+function renderAll(){renderNav();renderPage(currentPage);}
+function renderNav(){
+  document.querySelectorAll('.nav-btn').forEach(b=>{
+    const pg=b.dataset.page;
+    b.classList.toggle('locked',['p2','p3','p4'].includes(pg)&&!isEnabled(pg));
+  });
+}
+function renderPage(page){
+  if(page==='p1')renderP1();
+  if(page==='p2')renderP2();
+  if(page==='p3')renderP3();
+  if(page==='p4')renderP4();
+  if(page==='admin')renderAdmin();
+}
+
+// ═══ P1 — ACCESO ═══════════════════════════════════════
+function renderP1(){
+  document.getElementById('p1-content').innerHTML=`
+    <div class="hero-wrap">
+      <div class="hero-eyebrow">Primera Convocatoria</div>
+      <div class="hero-title">El Elianato</div>
+      <div class="hero-roman">MMXXVI</div>
+      <div class="hero-tagline">Intereses Cruzados</div>
+    </div>
+    <div class="ornament">◆</div>
+    <div class="card">
+      <div class="card-label">Identificación del invitado</div>
+      <input class="inp" id="login-name" type="text" placeholder="Tu nombre completo" autocomplete="off"
+        value="${currentUser&&!currentUser.isAdmin?currentUser.name:''}">
+      <div id="pin-field" style="display:none">
+        <div style="font-size:12px;color:var(--muted);margin-top:12px;margin-bottom:4px">
+          Elegí un código de 4 dígitos — lo usarás para verificar tu identidad
+        </div>
+        <input class="inp pin-inp" id="login-pin" type="number" placeholder="0000" maxlength="4"
+          oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+      </div>
+      <button class="btn btn-gold" onclick="handleLogin()">Confirmar asistencia</button>
+      <div id="login-msg" class="msg"></div>
+    </div>
+    <div class="divider-row"><span class="divider-line"></span><span class="divider-diamond">◆</span><span class="divider-line"></span></div>
+    <button class="btn btn-ghost btn-sm" style="width:100%" onclick="toggleAdminPanel()">
+      🔐 Acceso organizador
+    </button>
+    <div id="admin-login-panel" style="display:none;margin-top:12px" class="card card-dark">
+      <div class="card-label">PIN del organizador</div>
+      <input class="inp" id="admin-pin" type="password" placeholder="PIN">
+      <button class="btn btn-gold" onclick="handleAdminLogin()">Entrar</button>
+      <div id="admin-pin-msg" class="msg"></div>
+    </div>`;
+
+  // mostrar campo PIN solo si es nombre nuevo
+  document.getElementById('login-name').addEventListener('input', async e=>{
+    const name=e.target.value.trim();
+    if(!name){document.getElementById('pin-field').style.display='none';return;}
+    const players=await dbGet('players')||{};
+    const found=Object.values(players).find(p=>norm(p.name)===norm(name));
+    document.getElementById('pin-field').style.display=found?'none':'block';
+  });
+}
+
+window.toggleAdminPanel=()=>{
+  const p=document.getElementById('admin-login-panel');
+  p.style.display=p.style.display==='none'?'block':'none';
+};
+
+window.handleLogin=async()=>{
+  const name=document.getElementById('login-name').value.trim();
+  const msg=document.getElementById('login-msg');
+  if(!name){msg.innerHTML='<span class="err">Escribí tu nombre.</span>';return;}
+  const players=await dbGet('players')||{};
+  const found=Object.entries(players).find(([,p])=>norm(p.name)===norm(name));
+  if(!found){
+    const pinVal=document.getElementById('login-pin')?.value?.trim()||'';
+    if(!pinVal||pinVal.length>4){
+      msg.innerHTML='<span class="err">Elegí un código de hasta 4 dígitos.</span>';return;
+    }
+    await dbPush('players',{name,faccion:'',rol:'',number:'',codigo:pinVal,pts:0});
+    msg.innerHTML='<span class="ok">✓ Tu lugar está reservado. Nos vemos el 25 de abril.</span>';
+  } else {
+    msg.innerHTML=`<span class="ok">✓ Bienvenido de nuevo, ${found[1].name}.</span>`;
+  }
+  currentUser={name:found?found[1].name:name,isAdmin:false};
+  localStorage.setItem('elianato_user',JSON.stringify(currentUser));
+  setTimeout(()=>navigateTo('p2'),1300);
+};
+
+window.handleAdminLogin=async()=>{
+  const pin=document.getElementById('admin-pin').value.trim();
+  const real=await dbGet('config/pin');
+  if(pin===real){
+    currentUser={name:'Admin',isAdmin:true};
+    localStorage.setItem('elianato_user',JSON.stringify(currentUser));
+    navigateTo('admin');
+  } else {
+    document.getElementById('admin-pin-msg').innerHTML='<span class="err">PIN incorrecto.</span>';
+  }
+};
+
+// ═══ P2 — JUEGO ════════════════════════════════════════
+async function renderP2(){
+  const el=document.getElementById('p2-content');
+  if(!isEnabled('p2')){el.innerHTML=locked('El juego se habilitará durante el evento');return;}
+  const players=await dbGet('players')||{};
+  const subs=await dbGet('submissions')||{};
+  const roles=GS.roles||[];
+  const rules=GS.rules||'';
+  const phase=GS.phase||'none';
+  const entries=Object.entries(players);
+
+  const scores={};
+  const facPts={Mafia:0,Agencia:0,Municipales:0,Especial:0};
+  entries.forEach(([id,p])=>{scores[id]={name:p.name,faccion:p.faccion,pts:0};});
+  Object.values(subs).forEach(sub=>{
+    const pl=players[sub.playerId];if(!pl)return;
+    let total=0;
+    Object.entries(sub.guesses||{}).forEach(([tid,g])=>{
+      const t=players[tid];if(!t)return;
+      if(g.faccion)total+=norm(g.faccion)===norm(t.faccion)?PTS.facOk:PTS.facFail;
+      if(g.rol)total+=norm(g.rol)===norm(t.rol)?PTS.rolOk:PTS.rolFail;
+    });
+    if(scores[sub.playerId]){
+      scores[sub.playerId].pts+=total;
+      if(facPts[pl.faccion]!==undefined)facPts[pl.faccion]+=total;
+    }
+  });
+
+  const ranked=Object.values(scores).sort((a,b)=>b.pts-a.pts);
+  const facRanked=Object.entries(facPts).sort((a,b)=>b[1]-a[1]);
+
+  el.innerHTML=`
+    <div class="page-header">
+      <div class="page-title">🕵️ El Juego</div>
+      ${GS.phase&&GS.phase!=='none'?`<div class="phase-badge phase-${GS.phase}">Fase ${GS.phase}</div>`:''}
+    </div>
+
+    <div class="scores-grid">
+      <div class="score-panel">
+        <div class="score-panel-title">Individual</div>
+        ${ranked.map((p,i)=>`
+          <div class="score-row">
+            <span class="rank-num rank-${i+1}">${i+1}</span>
+            <span class="score-name">${p.name}</span>
+            <span class="score-pts">${p.pts.toFixed(1)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="score-panel">
+        <div class="score-panel-title">Facciones</div>
+        ${facRanked.map(([f,pts])=>`
+          <div class="score-row">
+            <span style="font-size:16px">${FACICON[f]||''}</span>
+            <span class="score-name" style="color:${FACCOL[f]}">${f}</span>
+            <span class="score-pts">${pts.toFixed(1)}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="section-divider"><span>Jugadores</span></div>
+    <div class="players-grid">
+      ${entries.map(([,p])=>`
+        <div class="player-chip">
+          <span class="chip-num">#${p.number||'?'}</span>
+          <span class="chip-name">${p.name}</span>
+          ${p.faccion?`<span class="chip-fac" style="background:${FACCOL[p.faccion]}22;color:${FACCOL[p.faccion]};border-color:${FACCOL[p.faccion]}">${FACICON[p.faccion]}</span>`:''}
+        </div>`).join('')}
+    </div>
+
+    <div class="section-divider"><span>Sospechas</span></div>
+    ${buildGuessSection(entries,subs,phase,roles)}
+
+    ${rules?`<div class="section-divider"><span>Reglas</span></div>
+      <div class="rules-box">${rules.replace(/\n/g,'<br>')}</div>`:''}`;
+
+  document.getElementById('guess-form')?.addEventListener('submit',e=>{
+    e.preventDefault();submitGuesses(entries,phase);
+  });
+}
+
+function buildGuessSection(entries,subs,phase,roles){
+  if(phase==='none')return`<div class="info-box">⏳ Las fases aún no comenzaron. Pronto podrás enviar tus sospechas.</div>`;
+  if(phase==='closed')return`<div class="info-box success-box">✓ Fase cerrada. Los resultados están arriba.</div>`;
+  if(!currentUser||currentUser.isAdmin)return`<div class="info-box">Iniciá sesión como jugador para participar.</div>`;
+  const meEntry=entries.find(([,p])=>norm(p.name)===norm(currentUser.name));
+  if(!meEntry)return`<div class="info-box">Tu nombre no está en la lista. Inscribite en Acceso.</div>`;
+  const [myId]=meEntry;
+  const sent=Object.values(subs).find(s=>s.playerId===myId&&s.phase===phase);
+  if(sent)return`
+    <div class="success-card">
+      <div class="success-icon">✓</div>
+      <div class="success-title">Fase ${phase} enviada</div>
+      <div class="success-pts">Puntos esta fase: <strong>${sent.total?.toFixed(1)||0}</strong></div>
+    </div>`;
+  let phaseAHits={};
+  if(phase==='B'){
+    const subA=Object.values(subs).find(s=>s.playerId===myId&&s.phase==='A');
+    if(subA)phaseAHits=subA.guesses||{};
+  }
+  const others=entries.filter(([id])=>id!==myId);
+  return`
+    <div class="phase-info-text">
+      ${phase==='A'?'Elegí la facción de cada jugador. Podés dejar en blanco si no sabés.':'Completá facción y rol. Los verdes ya los acertaste en Fase A.'}
+    </div>
+    <form id="guess-form">
+      ${others.map(([tid,tp])=>{
+        const hitA=phaseAHits[tid];
+        const facOkA=hitA?.faccionOk;
+        return`<div class="guess-card ${facOkA?'guess-green':''}">
+          <div class="guess-header">
+            <span class="guess-num">#${tp.number||'?'}</span>
+            <span class="guess-name-text">${tp.name}</span>
+            ${facOkA?`<span class="guess-ok-badge">✓ ${hitA.faccion}</span>`:''}
+          </div>
+          ${facOkA
+            ?`<input type="hidden" name="fac_${tid}" value="${hitA.faccion}">`
+            :`<select class="inp" name="fac_${tid}">
+                <option value="">— Facción —</option>
+                ${FACCIONES.map(f=>`<option value="${f}">${FACICON[f]} ${f}</option>`).join('')}
+              </select>`}
+          ${phase==='B'?`<select class="inp" name="rol_${tid}" style="margin-top:8px">
+            <option value="">— Rol —</option>
+            ${(roles||[]).map(r=>`<option value="${r}">${r}</option>`).join('')}
+          </select>`:''}
+        </div>`;
+      }).join('')}
+      <button class="btn btn-gold" type="submit" style="margin-top:16px">
+        Confirmar sospechas — Fase ${phase}
+      </button>
+    </form>`;
+}
+
+async function submitGuesses(entries,phase){
+  const meEntry=entries.find(([,p])=>norm(p.name)===norm(currentUser.name));
+  if(!meEntry)return;
+  const [myId]=meEntry;
+  const players=await dbGet('players')||{};
+  const subs=await dbGet('submissions')||{};
+  if(Object.values(subs).find(s=>s.playerId===myId&&s.phase===phase))return;
+  const form=document.getElementById('guess-form');
+  const data=new FormData(form);
+  const guesses={};let total=0;
+  entries.filter(([id])=>id!==myId).forEach(([tid])=>{
+    const target=players[tid];if(!target)return;
+    const faccion=data.get(`fac_${tid}`)||'';
+    const rol=data.get(`rol_${tid}`)||'';
+    const facOk=faccion&&norm(faccion)===norm(target.faccion);
+    const rolOk=rol&&norm(rol)===norm(target.rol);
+    if(faccion)total+=facOk?PTS.facOk:PTS.facFail;
+    if(rol)total+=rolOk?PTS.rolOk:PTS.rolFail;
+    guesses[tid]={faccion,rol,faccionOk:facOk,rolOk};
+  });
+  await dbPush('submissions',{playerId:myId,phase,guesses,total,ts:Date.now()});
+  alert(`✓ Enviado. Puntos esta fase: ${total.toFixed(1)}`);
+  renderP2();
+}
+
+// ═══ P3 — MESAS ════════════════════════════════════════
+async function renderP3(){
+  const el=document.getElementById('p3-content');
+  if(!isEnabled('p3')){el.innerHTML=locked('Las mesas estarán disponibles durante el evento');return;}
+  const tables=await dbGet('tables')||{};
+  const players=await dbGet('players')||{};
+  el.innerHTML=`
+    <div class="page-header"><div class="page-title">🃏 Mesas de Póker</div></div>
+    ${Object.keys(tables).length===0
+      ?'<div class="info-box">El organizador aún no armó las mesas.</div>'
+      :Object.entries(tables).map(([,table])=>`
+        <div class="table-card">
+          <div class="table-card-header">${table.name}</div>
+          ${(table.players||[]).map(pid=>{
+            const p=players[pid];
+            return p?`<div class="table-row">
+              <div style="display:flex;align-items:center;gap:8px">
+                ${p.faccion?`<span style="color:${FACCOL[p.faccion]}">${FACICON[p.faccion]}</span>`:''}
+                <span>${p.name}</span>
+              </div>
+              <span class="table-pts">${table.points?.[pid]!==undefined?table.points[pid]+' pts':'—'}</span>
+            </div>`:'';
+          }).join('')}
+        </div>`).join('')}`;
+}
+
+// ═══ P4 — CATERING ═════════════════════════════════════
+async function renderP4(){
+  const el=document.getElementById('p4-content');
+  const catering=GS.catering||{};
+  const comments=await dbGet('comments')||{};
+  el.innerHTML=`
+    <div class="page-header"><div class="page-title">🍕 Catering</div></div>
+    ${Object.keys(catering).length===0
+      ?'<div class="info-box">El menú se publicará pronto.</div>'
+      :Object.entries(catering).map(([cat,items])=>`
+        <div class="menu-card">
+          <div class="menu-cat">${cat}</div>
+          <div class="menu-items">
+            ${(items||[]).map(i=>`<div class="menu-item"><span class="menu-dot">◆</span>${i}</div>`).join('')}
+          </div>
+        </div>`).join('')}
+    <div class="section-divider"><span>Comentarios anónimos</span></div>
+    <div class="card">
+      <textarea class="inp" id="new-comment" rows="3" placeholder="Dejá tu pregunta o mensaje para todos..."></textarea>
+      <button class="btn btn-gold" onclick="postComment()" style="margin-top:8px">Publicar anónimamente</button>
+    </div>
+    ${Object.values(comments).length===0
+      ?'<div class="info-box">Aún no hay comentarios.</div>'
+      :Object.values(comments).reverse().map(c=>`
+        <div class="comment-card">
+          <div class="comment-text">${c.text}</div>
+          <div class="comment-meta">${new Date(c.ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</div>
+        </div>`).join('')}`;
+}
+
+window.postComment=async()=>{
+  const text=document.getElementById('new-comment').value.trim();
+  if(!text)return;
+  await dbPush('comments',{text,ts:Date.now()});
+  renderP4();
+};
+
+// ═══ ADMIN ══════════════════════════════════════════════
+async function renderAdmin(){
+  const el=document.getElementById('admin-content');
+  const players=await dbGet('players')||{};
+  const subs=await dbGet('submissions')||{};
+  const tables=await dbGet('tables')||{};
+  const comments=await dbGet('comments')||{};
+  const entries=Object.entries(players);
+  const phase=GS.phase||'none';
+  const enabled=GS.enabled||{};
+  const roles=GS.roles||[];
+  const catering=GS.catering||{};
+  const rules=GS.rules||'';
+
+  const adminRank=entries.map(([id,p])=>{
+    let pts=0,hits=0;
+    Object.values(subs).filter(s=>s.playerId===id).forEach(sub=>{
+      Object.entries(sub.guesses||{}).forEach(([tid,g])=>{
+        const t=players[tid];if(!t)return;
+        const fOk=g.faccion&&norm(g.faccion)===norm(t.faccion);
+        const rOk=g.rol&&norm(g.rol)===norm(t.rol);
+        if(g.faccion){pts+=fOk?PTS.facOk:PTS.facFail;if(fOk)hits++;}
+        if(g.rol){pts+=rOk?PTS.rolOk:PTS.rolFail;if(rOk)hits++;}
+      });
+    });
+    return{id,name:p.name,faccion:p.faccion,rol:p.rol,number:p.number,codigo:p.codigo||'—',pts,hits};
+  }).sort((a,b)=>b.pts-a.pts);
+
+  el.innerHTML=`
+    <div class="admin-header">
+      <div class="admin-title">Panel Admin</div>
+      <button class="btn btn-ghost btn-sm" onclick="adminLogout()">Salir</button>
+    </div>
+
+    <div class="admin-card ${GS.testMode?'admin-card-active':''}">
+      <div class="card-label">Modo Prueba</div>
+      <p class="admin-hint">Simula el evento sin tocar datos reales.</p>
+      <button class="btn ${GS.testMode?'btn-gold':'btn-ghost'}" onclick="toggleTestMode()">
+        ${GS.testMode?'🟡 Activo — Desactivar':'⚪ Activar Modo Prueba'}</button>
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Control del Evento</div>
+      <div class="control-grid">
+        <div>
+          <div class="admin-sublabel">Páginas activas</div>
+          ${['p2','p3','p4'].map(p=>`
+            <label class="toggle-row">
+              <span>${p==='p2'?'🕵️ Juego':p==='p3'?'🃏 Mesas':'🍕 Catering'}</span>
+              <input type="checkbox" ${enabled[p]?'checked':''} onchange="togglePage('${p}',this.checked)">
+            </label>`).join('')}
+        </div>
+        <div>
+          <div class="admin-sublabel">Fase: <strong style="color:var(--gold)">${phase.toUpperCase()}</strong></div>
+          ${['A','B','closed','none'].map(f=>`
+            <button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:5px" onclick="setPhase('${f}')">
+              ${f==='A'?'Activar Fase A':f==='B'?'Activar Fase B':f==='closed'?'Cerrar fase':'Resetear fase'}
+            </button>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Jugadores (${entries.length})</div>
+      <button class="btn btn-ghost btn-sm" onclick="addPlayer()" style="margin-bottom:12px">+ Agregar jugador</button>
+      <div class="players-table">
+        <div class="players-table-header">
+          <span>#</span><span>Nombre</span><span>Código</span><span>Facción · Rol</span><span></span>
+        </div>
+        ${entries.map(([id,p])=>`
+          <div class="players-table-row">
+            <span class="pt-num">${p.number||'?'}</span>
+            <span class="pt-name">${p.name}</span>
+            <span class="pt-code">${p.codigo||'—'}</span>
+            <span class="pt-role" style="color:${FACCOL[p.faccion]||'var(--muted)'}">${p.faccion||'—'} · ${p.rol||'—'}</span>
+            <span class="pt-actions">
+              <button class="btn-icon" onclick="editPlayer('${id}')">✏️</button>
+              <button class="btn-icon" onclick="deletePlayer('${id}')">✕</button>
+            </span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Roles disponibles (Fase B)</div>
+      <p class="admin-hint">Un rol por línea. Los jugadores los elegirán de esta lista.</p>
+      <textarea class="inp" id="roles-editor" rows="12">${roles.join('\n')}</textarea>
+      <button class="btn btn-gold" onclick="saveRoles()" style="margin-top:8px">Guardar roles</button>
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Resultados detallados</div>
+      ${adminRank.map((s,i)=>`
+        <div class="result-row">
+          <span class="rank-num rank-${i+1}">${i+1}</span>
+          <span style="flex:1;font-size:15px">${s.name}
+            <span style="font-size:12px;color:${FACCOL[s.faccion]||'var(--muted)'}"> ${s.faccion||''}</span>
+          </span>
+          <span style="color:var(--gold);font-weight:bold;font-family:'Cinzel',serif">${s.pts.toFixed(1)} pts</span>
+        </div>
+        <div style="margin-bottom:12px">
+          ${Object.values(subs).filter(sub=>sub.playerId===s.id).map(sub=>`
+            <div class="sub-phase-label">Fase ${sub.phase}:</div>
+            ${Object.entries(sub.guesses||{}).map(([tid,g])=>{
+              const t=players[tid];if(!t)return'';
+              const fOk=g.faccion&&norm(g.faccion)===norm(t.faccion);
+              const rOk=g.rol&&norm(g.rol)===norm(t.rol);
+              return`<div class="sub-detail">
+                <span class="sub-target">${t.name}:</span>
+                ${g.faccion?`<span class="${fOk?'ok':'err'}">${g.faccion}${fOk?'✓':'✗'}</span>`:'<span class="muted">—</span>'}
+                ${g.rol?`<span class="${rOk?'ok':'muted'}">${g.rol}${rOk?'✓':''}</span>`:''}
+              </div>`;
+            }).join('')}`).join('')}
+        </div>`).join('')}
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Mesas de Póker</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn btn-ghost btn-sm" onclick="showCreateTable('manual')">+ Mesa manual</button>
+        <button class="btn btn-ghost btn-sm" onclick="showCreateTable('auto')">🎲 Aleatoria</button>
+      </div>
+      <div id="create-table-panel"></div>
+      ${Object.entries(tables).map(([tid,table])=>`
+        <div class="table-card" style="margin-bottom:10px">
+          <div class="table-card-header" style="display:flex;justify-content:space-between">
+            <span>${table.name}</span>
+            <button class="btn-icon" onclick="deleteTable('${tid}')">✕</button>
+          </div>
+          ${(table.players||[]).map(pid=>{
+            const p=players[pid];if(!p)return'';
+            return`<div class="table-row">
+              <span>${p.name}</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="number" class="inp inp-sm" value="${table.points?.[pid]??''}"
+                  placeholder="pts" style="width:70px;text-align:center"
+                  onchange="saveTablePts('${tid}','${pid}',this.value)">
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`).join('')||'<div class="info-box">No hay mesas creadas aún.</div>'}
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Catering</div>
+      ${Object.entries(catering).map(([cat,items])=>`
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-family:'Cinzel',serif;font-size:13px;color:var(--gold)">${cat}</span>
+            <button class="btn-icon" onclick="deleteCat('${cat}')">✕</button>
+          </div>
+          <textarea class="inp" rows="3" onchange="saveCatItems('${cat}',this.value)">${(items||[]).join('\n')}</textarea>
+          <div class="admin-hint" style="margin-top:3px">Un ítem por línea</div>
+        </div>`).join('')}
+      <button class="btn btn-ghost btn-sm" onclick="addCat()">+ Categoría</button>
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Reglas del juego</div>
+      <textarea class="inp" id="rules-editor" rows="8" placeholder="Escribí las reglas acá...">${rules}</textarea>
+      <button class="btn btn-gold" onclick="saveRules()" style="margin-top:8px">Guardar reglas</button>
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Comentarios anónimos</div>
+      ${Object.keys(comments).length===0
+        ?'<div class="info-box">Sin comentarios.</div>'
+        :Object.entries(comments).map(([cid,c])=>`
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;
+                      padding:8px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:14px;flex:1;color:var(--text-soft)">${c.text}</span>
+            <button class="btn-icon" onclick="deleteComment('${cid}')">✕</button>
+          </div>`).join('')}
+    </div>
+
+    <div class="admin-card">
+      <div class="card-label">Configuración</div>
+      <div style="margin-bottom:14px">
+        <div class="admin-sublabel">Cambiar PIN admin</div>
+        <input class="inp" id="new-pin" type="password" placeholder="Nuevo PIN">
+        <button class="btn btn-ghost btn-sm" onclick="changePin()" style="margin-top:6px">Cambiar</button>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:8px" onclick="resetSubs()">
+        Resetear envíos (mantiene jugadores)
+      </button>
+      <button class="btn btn-danger btn-sm" style="width:100%" onclick="resetAll()">⚠️ Resetear TODO</button>
+    </div>`;
+}
+
+// ── mesas ──────────────────────────────────────────────
+window.showCreateTable=async mode=>{
+  const players=await dbGet('players')||{};
+  const entries=Object.entries(players);
+  const panel=document.getElementById('create-table-panel');
+  if(mode==='auto'){
+    panel.innerHTML=`<div class="admin-card" style="margin-bottom:12px">
+      <div class="card-label">Mesa aleatoria</div>
+      <div class="admin-sublabel">Jugadores por mesa:</div>
+      <input class="inp" id="table-size" type="number" value="5" min="2" style="width:80px">
+      <button class="btn btn-gold" onclick="createTableAuto()" style="margin-top:8px">Generar mesas</button>
+    </div>`;
+  } else {
+    panel.innerHTML=`<div class="admin-card" style="margin-bottom:12px">
+      <div class="card-label">Mesa manual</div>
+      <input class="inp" id="table-name-inp" placeholder="Nombre de la mesa (ej: Mesa 1)" style="margin-bottom:8px">
+      <div class="admin-sublabel" style="margin-bottom:8px">Elegí los jugadores:</div>
+      <div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px">
+        ${entries.map(([id,p])=>`
+          <label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;font-size:14px">
+            <input type="checkbox" value="${id}" class="tpc" style="accent-color:var(--gold)">
+            <span class="pt-num">#${p.number||'?'}</span> ${p.name}
+          </label>`).join('')}
+      </div>
+      <button class="btn btn-gold" onclick="createTableManual()" style="margin-top:10px">Crear mesa</button>
+    </div>`;
+  }
+};
+
+window.createTableAuto=async()=>{
+  const size=parseInt(document.getElementById('table-size').value)||5;
+  const players=await dbGet('players')||{};
+  const tables=await dbGet('tables')||{};
+  const allIds=Object.keys(players);
+  const shuffled=[...allIds].sort(()=>Math.random()-0.5);
+  const num=Object.keys(tables).length+1;
+  for(let i=0;i<shuffled.length;i+=size){
+    const group=shuffled.slice(i,i+size);
+    await dbPush('tables',{name:`Mesa ${num+Math.floor(i/size)}`,players:group,points:{}});
+  }
+  document.getElementById('create-table-panel').innerHTML='';
+  renderAdmin();
+};
+
+window.createTableManual=async()=>{
+  const name=document.getElementById('table-name-inp').value.trim();
+  const pids=Array.from(document.querySelectorAll('.tpc:checked')).map(b=>b.value);
+  if(!name||!pids.length){alert('Completá el nombre y elegí al menos un jugador.');return;}
+  await dbPush('tables',{name,players:pids,points:{}});
+  document.getElementById('create-table-panel').innerHTML='';
+  renderAdmin();
+};
+
+window.saveTablePts=async(tid,pid,val)=>{
+  await dbSet(`tables/${tid}/points/${pid}`,parseFloat(val)||0);
+};
+window.deleteTable=async tid=>{
+  if(!confirm('¿Eliminar esta mesa?'))return;
+  await dbDel(`tables/${tid}`);renderAdmin();
+};
+
+window.saveCatItems=async(cat,val)=>{
+  const items=val.split('\n').map(s=>s.trim()).filter(Boolean);
+  const current=await dbGet('gamestate/catering')||{};
+  current[cat]=items;
+  await dbSet('gamestate/catering',current);
+};
+window.addCat=async()=>{
+  const cat=prompt('Nombre de la categoría:');
+  if(!cat)return;
+  const current=await dbGet('gamestate/catering')||{};
+  if(!current[cat])current[cat]=[];
+  await dbSet('gamestate/catering',current);renderAdmin();
+};
+window.deleteCat=async cat=>{
+  if(!confirm(`¿Eliminar "${cat}"?`))return;
+  const current=await dbGet('gamestate/catering')||{};
+  delete current[cat];
+  await dbSet('gamestate/catering',current);renderAdmin();
+};
+window.saveRules=async()=>{
+  await dbSet('gamestate/rules',document.getElementById('rules-editor').value);
+  alert('✓ Reglas guardadas.');
+};
+window.saveRoles=async()=>{
+  const text=document.getElementById('roles-editor').value;
+  const roles=text.split('\n').map(s=>s.trim()).filter(Boolean);
+  await dbSet('gamestate/roles',roles);
+  alert(`✓ ${roles.length} roles guardados.`);
+};
+window.adminLogout=()=>{
+  currentUser=null;localStorage.removeItem('elianato_user');navigateTo('p1');
+};
+window.toggleTestMode=()=>dbSet('gamestate/testMode',!GS.testMode);
+window.togglePage=(p,v)=>dbSet(`gamestate/enabled/${p}`,v);
+window.setPhase=phase=>dbSet('gamestate/phase',phase);
+window.addPlayer=async()=>{
+  const name=prompt('Nombre del jugador:');if(!name)return;
+  await dbPush('players',{name,faccion:'',rol:'',number:'',codigo:'',pts:0});renderAdmin();
+};
+window.editPlayer=async id=>{
+  const p=await dbGet(`players/${id}`);
+  const name=prompt('Nombre:',p.name)??p.name;
+  const number=prompt('Número collar:',p.number)??p.number;
+  const faccion=prompt('Facción:',p.faccion)??p.faccion;
+  const rol=prompt('Rol real:',p.rol)??p.rol;
+  const codigo=prompt('Código 4 dígitos:',p.codigo)??p.codigo;
+  await dbUpd(`players/${id}`,{name,number,faccion,rol,codigo});renderAdmin();
+};
+window.deletePlayer=async id=>{
+  if(!confirm('¿Eliminar jugador?'))return;
+  await dbDel(`players/${id}`);renderAdmin();
+};
+window.changePin=async()=>{
+  const pin=document.getElementById('new-pin').value.trim();
+  if(!pin){alert('Escribí el nuevo PIN.');return;}
+  await dbSet('config/pin',pin);alert('✓ PIN actualizado.');
+};
+window.resetSubs=async()=>{
+  if(!confirm('¿Resetear todos los envíos?'))return;
+  await dbSet('submissions',null);renderAdmin();
+};
+window.resetAll=async()=>{
+  if(!confirm('⚠️ Borra TODO. ¿Seguro?'))return;
+  await dbSet('/',null);await dbSet('config/pin','1234');renderAdmin();
+};
+window.deleteComment=async id=>{
+  await dbDel(`comments/${id}`);renderAdmin();
+};
+
+function locked(msg){
+  return`<div class="locked-screen">
+    <div class="lock-icon">🔒</div>
+    <div class="lock-msg">${msg}</div>
+  </div>`;
+}
+</script>
+
+<style>
+/* ═══════════════════════════════════════════════
+   VARIABLES — paleta elegante negro + morado + dorado
+═══════════════════════════════════════════════ */
+:root{
+  --bg:         #070509;
+  --bg2:        #0e0a14;
+  --card:       #130d1c;
+  --card2:      #1a1028;
+  --border:     #2e1f4a;
+  --border2:    #3d2860;
+  --gold:       #c9a84c;
+  --gold-light: #e8c96a;
+  --gold-dim:   #7a5f20;
+  --purple:     #7c3aed;
+  --purple-light:#a855f7;
+  --purple-dim: #3b1f6e;
+  --red:        #9b1c3a;
+  --red-light:  #e53e6d;
+  --blue:       #1d4ed8;
+  --blue-light: #60a5fa;
+  --amber:      #b45309;
+  --amber-light:#fbbf24;
+  --text:       #f0e8ff;
+  --text-soft:  #c4b8d8;
+  --muted:      #7a6a90;
+  --danger:     #7f1d1d;
+
+  --grad-purple: linear-gradient(135deg,#2d1b4e,#1a0d2e);
+  --grad-gold:   linear-gradient(135deg,var(--gold),#9a7020);
+  --glow-gold:   0 0 20px rgba(201,168,76,0.25);
+  --glow-purple: 0 0 30px rgba(124,58,237,0.2);
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);
+  font-family:'Cormorant Garamond',serif;font-size:16px;overflow-x:hidden}
+
+/* ruido de fondo */
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.04;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+
+/* gradiente de fondo */
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse at 30% 0%,rgba(124,58,237,.12) 0%,transparent 60%),
+             radial-gradient(ellipse at 70% 100%,rgba(155,28,58,.1) 0%,transparent 60%);}
+
+.app{position:relative;z-index:1;display:flex;flex-direction:column;
+  min-height:100dvh;max-width:480px;margin:0 auto}
+.pages{flex:1;overflow-y:auto;padding:0 0 84px}
+.page{display:none;padding:24px 16px}
+.page.active{display:block;animation:fadeUp .3s ease}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ═══ HERO ═══ */
+.hero-wrap{text-align:center;padding:28px 0 8px;
+  background:var(--grad-purple);
+  border:1px solid var(--border2);border-radius:8px;
+  margin-bottom:20px;position:relative;overflow:hidden;
+  box-shadow:var(--glow-purple)}
+.hero-wrap::before{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 0%,rgba(201,168,76,.1),transparent 60%);}
+.hero-eyebrow{font-family:'Cinzel',serif;font-size:8px;letter-spacing:.5em;
+  color:var(--purple-light);text-transform:uppercase;margin-bottom:10px}
+.hero-title{font-family:'Cinzel',serif;font-size:38px;font-weight:900;
+  color:var(--gold);letter-spacing:.04em;line-height:1;
+  text-shadow:0 0 40px rgba(201,168,76,.5);margin-bottom:6px}
+.hero-roman{font-family:'Cormorant Garamond',serif;font-size:13px;
+  letter-spacing:.4em;color:var(--muted);margin-bottom:8px}
+.hero-tagline{font-family:'Cormorant Garamond',serif;font-size:17px;
+  font-style:italic;color:var(--text-soft);letter-spacing:.1em;padding-bottom:8px}
+
+.ornament{text-align:center;color:var(--gold-dim);font-size:14px;margin:4px 0 16px}
+
+/* ═══ NAV ═══ */
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:480px;z-index:100;
+  background:rgba(13,9,20,.95);
+  border-top:1px solid var(--border2);
+  backdrop-filter:blur(12px)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;padding:10px 4px 14px;background:none;border:none;
+  color:var(--muted);font-size:9.5px;font-family:'Cinzel',serif;
+  letter-spacing:.06em;cursor:pointer;transition:all .2s;gap:4px}
+.nav-icon{font-size:19px;transition:transform .2s}
+.nav-btn.active{color:var(--gold)}
+.nav-btn.active .nav-icon{transform:scale(1.15)}
+.nav-btn.locked{opacity:.3;pointer-events:none}
+.nav{display:flex}
+
+/* ═══ CARDS ═══ */
+.card{background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:18px;margin-bottom:14px;
+  box-shadow:0 4px 24px rgba(0,0,0,.4)}
+.card-dark{background:var(--bg2)}
+.admin-card{background:var(--card);border:1px solid var(--border);
+  border-radius:8px;padding:16px;margin-bottom:14px}
+.admin-card-active{border-color:var(--gold);box-shadow:var(--glow-gold)}
+
+/* ═══ TYPOGRAPHY ═══ */
+.card-label{font-family:'Cinzel',serif;font-size:9.5px;letter-spacing:.35em;
+  color:var(--purple-light);text-transform:uppercase;margin-bottom:12px}
+.admin-sublabel{font-size:11px;color:var(--muted);letter-spacing:.15em;
+  margin-bottom:8px;font-family:'Cinzel',serif}
+.admin-hint{font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.5}
+.admin-title{font-family:'Cinzel',serif;color:var(--gold);font-size:18px;font-weight:600}
+.admin-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+
+/* ═══ DIVIDERS ═══ */
+.divider-row{display:flex;align-items:center;gap:10px;margin:14px 0}
+.divider-line{flex:1;height:1px;background:var(--border)}
+.divider-diamond{color:var(--gold-dim);font-size:10px}
+.section-divider{display:flex;align-items:center;gap:10px;margin:20px 0 14px;
+  font-family:'Cinzel',serif;font-size:10px;letter-spacing:.25em;color:var(--muted)}
+.section-divider::before,.section-divider::after{content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border2))}
+
+/* ═══ BUTTONS ═══ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:11px 20px;border-radius:6px;border:none;cursor:pointer;
+  font-family:'Cinzel',serif;font-size:12.5px;letter-spacing:.08em;
+  transition:all .2s;width:100%;margin-top:8px}
+.btn-gold{background:var(--grad-gold);color:#0a0608;font-weight:700;
+  box-shadow:0 4px 16px rgba(201,168,76,.3)}
+.btn-gold:hover{filter:brightness(1.12);box-shadow:0 6px 24px rgba(201,168,76,.4)}
+.btn-ghost{background:transparent;color:var(--muted);
+  border:1px solid var(--border2);width:auto}
+.btn-ghost:hover{border-color:var(--gold);color:var(--gold)}
+.btn-danger{background:var(--danger);color:var(--text)}
+.btn-sm{padding:7px 14px;font-size:11px;margin-top:0}
+.btn-icon{background:none;border:none;cursor:pointer;font-size:14px;
+  color:var(--muted);padding:4px;transition:color .2s;line-height:1}
+.btn-icon:hover{color:var(--text)}
+
+/* ═══ INPUTS ═══ */
+.inp{width:100%;background:#0c0816;border:1px solid var(--border2);
+  border-radius:6px;padding:10px 14px;color:var(--text);
+  font-family:'Cormorant Garamond',serif;font-size:16px;
+  outline:none;transition:border-color .2s,box-shadow .2s;margin-top:4px}
+.inp:focus{border-color:var(--purple-light);box-shadow:0 0 0 3px rgba(168,85,247,.1)}
+.inp::placeholder{color:var(--muted)}
+.inp-sm{padding:5px 8px;font-size:14px}
+select.inp{cursor:pointer}
+textarea.inp{resize:vertical}
+.pin-inp{font-size:22px;letter-spacing:.3em;text-align:center;font-family:'Cinzel',serif;
+  max-width:140px}
+
+/* ═══ SCORES ═══ */
+.scores-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:4px}
+.score-panel{background:var(--card2);border:1px solid var(--border);
+  border-radius:8px;padding:14px}
+.score-panel-title{font-family:'Cinzel',serif;font-size:9px;letter-spacing:.3em;
+  color:var(--purple-light);text-transform:uppercase;margin-bottom:10px}
+.score-row{display:flex;align-items:center;gap:8px;padding:5px 0;
+  border-bottom:1px solid rgba(46,31,74,.5)}
+.score-row:last-child{border-bottom:none}
+.rank-num{font-family:'Cinzel',serif;font-size:13px;color:var(--muted);
+  width:20px;text-align:center;flex-shrink:0}
+.rank-1{color:var(--gold)!important}
+.rank-2{color:#b0b8c8!important}
+.rank-3{color:#cd7f32!important}
+.score-name{flex:1;font-size:13px;color:var(--text-soft)}
+.score-pts{font-family:'Cinzel',serif;font-size:13px;color:var(--gold);font-weight:bold}
+
+/* ═══ PLAYERS GRID ═══ */
+.players-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}
+.player-chip{display:flex;align-items:center;gap:6px;
+  background:var(--card2);border:1px solid var(--border);
+  border-radius:20px;padding:5px 12px 5px 8px;
+  transition:border-color .2s}
+.player-chip:hover{border-color:var(--border2)}
+.chip-num{font-family:'Cinzel',serif;font-size:11px;color:var(--gold);
+  background:rgba(201,168,76,.1);border-radius:10px;padding:1px 6px}
+.chip-name{font-size:13px;color:var(--text-soft)}
+.chip-fac{font-size:12px;border:1px solid;border-radius:4px;padding:1px 5px;margin-left:2px}
+
+/* ═══ PAGE HEADER ═══ */
+.page-header{display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:18px}
+.page-title{font-family:'Cinzel',serif;font-size:16px;color:var(--gold);font-weight:600}
+.phase-badge{font-family:'Cinzel',serif;font-size:10px;letter-spacing:.15em;
+  padding:4px 10px;border-radius:12px;border:1px solid}
+.phase-A{color:var(--gold);border-color:var(--gold);background:rgba(201,168,76,.1)}
+.phase-B{color:var(--purple-light);border-color:var(--purple-light);background:rgba(168,85,247,.1)}
+.phase-closed{color:var(--muted);border-color:var(--border)}
+
+/* ═══ GUESS CARDS ═══ */
+.phase-info-text{font-size:13px;color:var(--muted);font-style:italic;
+  margin-bottom:14px;line-height:1.6;padding:10px 14px;
+  background:var(--bg2);border-left:3px solid var(--purple-dim);border-radius:0 4px 4px 0}
+.guess-card{background:var(--card2);border:1px solid var(--border);
+  border-radius:8px;padding:12px;margin-bottom:10px;transition:border-color .2s}
+.guess-card.guess-green{border-color:#1a4a2a;background:#050f08}
+.guess-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.guess-num{font-family:'Cinzel',serif;font-size:12px;color:var(--gold);
+  background:rgba(201,168,76,.1);border-radius:10px;padding:2px 8px}
+.guess-name-text{flex:1;font-size:14px;color:var(--text)}
+.guess-ok-badge{font-size:12px;color:#27ae60;background:rgba(39,174,96,.1);
+  border:1px solid rgba(39,174,96,.3);border-radius:4px;padding:2px 8px}
+
+/* ═══ SUCCESS ═══ */
+.success-card{text-align:center;background:var(--card2);border:1px solid #1a4a2a;
+  border-radius:8px;padding:28px 20px}
+.success-icon{font-size:40px;color:#27ae60;margin-bottom:10px}
+.success-title{font-family:'Cinzel',serif;color:var(--gold);font-size:16px;margin-bottom:8px}
+.success-pts{font-size:14px;color:var(--muted)}
+
+/* ═══ INFO BOXES ═══ */
+.info-box{text-align:center;padding:16px;color:var(--muted);font-style:italic;
+  font-size:14px;background:var(--card2);border-radius:8px;
+  border:1px solid var(--border);margin-bottom:12px}
+.success-box{color:#27ae60;border-color:#1a4a2a;background:#050f08}
+
+/* ═══ RULES ═══ */
+.rules-box{font-size:14px;color:var(--text-soft);line-height:1.8;
+  background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:16px}
+
+/* ═══ TABLES (poker) ═══ */
+.table-card{background:var(--card2);border:1px solid var(--border2);
+  border-radius:8px;overflow:hidden;margin-bottom:14px}
+.table-card-header{background:var(--grad-purple);padding:10px 14px;
+  font-family:'Cinzel',serif;font-size:13px;color:var(--gold);
+  border-bottom:1px solid var(--border2);display:flex;align-items:center}
+.table-row{display:flex;justify-content:space-between;align-items:center;
+  padding:9px 14px;border-bottom:1px solid rgba(46,31,74,.4);font-size:14px}
+.table-row:last-child{border-bottom:none}
+.table-pts{font-family:'Cinzel',serif;font-size:13px;color:var(--gold)}
+
+/* ═══ MENU / CATERING ═══ */
+.menu-card{background:var(--card2);border:1px solid var(--border);
+  border-radius:8px;overflow:hidden;margin-bottom:14px}
+.menu-cat{background:linear-gradient(135deg,rgba(124,58,237,.2),rgba(155,28,58,.15));
+  padding:10px 16px;font-family:'Cinzel',serif;font-size:11px;letter-spacing:.25em;
+  color:var(--gold-light);text-transform:uppercase;border-bottom:1px solid var(--border)}
+.menu-items{padding:12px 16px}
+.menu-item{display:flex;align-items:center;gap:8px;
+  padding:5px 0;font-size:15px;color:var(--text-soft);
+  border-bottom:1px solid rgba(46,31,74,.3)}
+.menu-item:last-child{border-bottom:none}
+.menu-dot{color:var(--gold-dim);font-size:8px;flex-shrink:0}
+
+/* ═══ COMMENTS ═══ */
+.comment-card{background:var(--card2);border-left:3px solid var(--purple-dim);
+  padding:12px 14px;margin-bottom:8px;border-radius:0 8px 8px 0}
+.comment-text{font-size:14px;color:var(--text-soft);line-height:1.6}
+.comment-meta{font-size:11px;color:var(--muted);margin-top:6px;
+  font-family:'Cinzel',serif;letter-spacing:.1em}
+
+/* ═══ ADMIN PLAYERS TABLE ═══ */
+.players-table{border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.players-table-header{display:grid;grid-template-columns:40px 1fr 60px 1fr 60px;
+  gap:8px;padding:8px 12px;background:var(--bg2);
+  font-family:'Cinzel',serif;font-size:9px;letter-spacing:.2em;color:var(--muted)}
+.players-table-row{display:grid;grid-template-columns:40px 1fr 60px 1fr 60px;
+  gap:8px;padding:9px 12px;border-top:1px solid var(--border);
+  font-size:13px;align-items:center}
+.players-table-row:hover{background:var(--bg2)}
+.pt-num{font-family:'Cinzel',serif;color:var(--gold);font-size:12px}
+.pt-name{color:var(--text)}
+.pt-code{font-family:'Cinzel',serif;color:var(--purple-light);
+  font-size:13px;letter-spacing:.1em}
+.pt-role{font-size:12px}
+.pt-actions{display:flex;gap:4px;justify-content:flex-end}
+
+/* ═══ RESULTS ═══ */
+.result-row{display:flex;align-items:center;gap:8px;padding:7px 0;
+  border-bottom:1px solid var(--border)}
+.sub-phase-label{font-size:11px;color:var(--purple-light);
+  margin:4px 0 3px 24px;font-family:'Cinzel',serif;letter-spacing:.1em}
+.sub-detail{font-size:12px;margin-left:24px;margin-bottom:3px;
+  display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sub-target{color:var(--muted)}
+.ok{color:#27ae60}.err{color:#e74c3c}.muted{color:var(--muted)}
+
+/* ═══ CONTROL ═══ */
+.control-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;
+  padding:8px 0;font-size:13px;cursor:pointer;
+  border-bottom:1px solid var(--border)}
+
+/* ═══ LOCKED ═══ */
+.locked-screen{text-align:center;padding:80px 20px}
+.lock-icon{font-size:48px;margin-bottom:16px;opacity:.6}
+.lock-msg{font-family:'Cinzel',serif;color:var(--gold);font-size:14px;
+  letter-spacing:.1em;line-height:1.6}
+
+/* ═══ MSG ═══ */
+.msg{font-size:13px;margin-top:10px;min-height:18px}
+
+/* ═══ SCROLLBAR ═══ */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="pages">
+    <div class="page active" id="p1"><div id="p1-content"></div></div>
+    <div class="page" id="p2"><div id="p2-content"></div></div>
+    <div class="page" id="p3"><div id="p3-content"></div></div>
+    <div class="page" id="p4"><div id="p4-content"></div></div>
+    <div class="page" id="admin"><div id="admin-content"></div></div>
+  </div>
+  <nav class="nav">
+    <button class="nav-btn active" data-page="p1" onclick="navigateTo('p1')">
+      <span class="nav-icon">🎭</span>Acceso
+    </button>
+    <button class="nav-btn" data-page="p2" onclick="navigateTo('p2')">
+      <span class="nav-icon">🕵️</span>Juego
+    </button>
+    <button class="nav-btn" data-page="p3" onclick="navigateTo('p3')">
+      <span class="nav-icon">🃏</span>Mesas
+    </button>
+    <button class="nav-btn" data-page="p4" onclick="navigateTo('p4')">
+      <span class="nav-icon">🍕</span>Catering
+    </button>
+  </nav>
+</div>
+</body>
+</html>
